@@ -1,0 +1,15 @@
+(env
+ (_ (flags (:standard -w +a-4-27-42-44-45 -warn-error +a-3))))
+(include_subdirs unqualified)
+
+
+(library
+ (name wasm_components)
+ (public_name wasm_components)
+ (modules parse parser lexer flags)
+ (libraries wasm menhirLib))
+
+(executable
+ (name main)
+ (modules main run)
+ (libraries bigarray wasm wasm_components))
