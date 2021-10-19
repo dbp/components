@@ -6,7 +6,7 @@
 (library
  (name wasm_components)
  (public_name wasm_components)
- (modules parse parser lexer flags)
+ (modules ast parse parser i32 i64 f32 f64 lexer lib memory flags operators script source types utf8 values)
  (libraries wasm menhirLib))
 
 (executable

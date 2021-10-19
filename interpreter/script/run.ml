@@ -241,9 +241,9 @@ let print_module x_opt m =
   flush_all ()
 
 let print_values vs =
-  let ts = List.map Values.type_of_value vs in
+  let ts = List.map Wasm.Values.type_of_value vs in
   Printf.printf "%s : %s\n"
-    (Values.string_of_values vs) (Types.string_of_value_types ts);
+    (Wasm.Values.string_of_values vs) (Types.string_of_value_types ts);
   flush_all ()
 
 let string_of_nan = function
@@ -252,17 +252,17 @@ let string_of_nan = function
 
 let type_of_result r =
   match r with
-  | LitResult v -> Values.type_of_value v.it
-  | NanResult n -> Types.NumType (Values.type_of_num n.it)
+  | LitResult v -> Wasm.Values.type_of_value v.it
+  | NanResult n -> Types.NumType (Wasm.Values.type_of_num n.it)
   | RefResult t -> Types.RefType t
 
 let string_of_result r =
   match r with
-  | LitResult v -> Values.string_of_value v.it
+  | LitResult v -> Wasm.Values.string_of_value v.it
   | NanResult nanop ->
     (match nanop.it with
-    | Values.I32 _ | Values.I64 _ -> assert false
-    | Values.F32 n | Values.F64 n -> string_of_nan n
+    | Wasm.Values.I32 _ | Wasm.Values.I64 _ -> assert false
+    | Wasm.Values.F32 n | Wasm.Values.F64 n -> string_of_nan n
     )
   | RefResult t -> Types.string_of_refed_type t
 
@@ -284,8 +284,8 @@ module Map = Map.Make(String)
 let quote : script ref = ref []
 let scripts : script Map.t ref = ref Map.empty
 let modules : Wasm.Ast.module_ Map.t ref = ref Map.empty
-let instances : Instance.module_inst Map.t ref = ref Map.empty
-let registry : Instance.module_inst Map.t ref = ref Map.empty
+let instances : Wasm.Instance.module_inst Map.t ref = ref Map.empty
+let registry : Wasm.Instance.module_inst Map.t ref = ref Map.empty
 
 let bind map x_opt y =
   let map' =
@@ -306,7 +306,7 @@ let lookup_module = lookup "module" modules
 let lookup_instance = lookup "module" instances
 
 let lookup_registry module_name item_name _t =
-  match Instance.export (Map.find module_name !registry) item_name with
+  match Wasm.Instance.export (Map.find module_name !registry) item_name with
   | Some ext -> ext
   | None -> raise Not_found
 
@@ -324,21 +324,21 @@ let rec run_definition def : Wasm.Ast.module_ =
     let def' = Parse.string_to_module s in
     run_definition def'
 
-let run_action act : Values.value list =
+let run_action act : Wasm.Values.value list =
   match act.it with
   | Invoke (x_opt, name, vs) ->
     trace ("Invoking function \"" ^ Wasm.Ast.string_of_name name ^ "\"...");
     let inst = lookup_instance x_opt act.at in
-    (match Instance.export inst name with
-    | Some (Instance.ExternFunc f) ->
-      let Types.FuncType (ins, out) = Func.type_of f in
+    (match Wasm.Instance.export inst name with
+    | Some (Wasm.Instance.ExternFunc f) ->
+      let Wasm.Types.FuncType (ins, out) = Func.type_of f in
       if List.length vs <> List.length ins then
         Script.error act.at "wrong number of arguments";
       List.iter2 (fun v t ->
-        if Values.type_of_value v.it <> t then
+        if Wasm.Values.type_of_value v.it <> t then
           Script.error v.at "wrong type of argument"
       ) vs ins;
-      Eval.invoke f (List.map (fun v -> v.it) vs)
+      Wasm.Eval.invoke f (List.map (fun v -> v.it) vs)
     | Some _ -> Assert.error act.at "export is not a function"
     | None -> Assert.error act.at "undefined export"
     )
@@ -346,14 +346,14 @@ let run_action act : Values.value list =
  | Get (x_opt, name) ->
     trace ("Getting global \"" ^ Wasm.Ast.string_of_name name ^ "\"...");
     let inst = lookup_instance x_opt act.at in
-    (match Instance.export inst name with
-    | Some (Instance.ExternGlobal gl) -> [Global.load gl]
+    (match Wasm.Instance.export inst name with
+    | Some (Wasm.Instance.ExternGlobal gl) -> [Global.load gl]
     | Some _ -> Assert.error act.at "export is not a global"
     | None -> Assert.error act.at "undefined export"
     )
 
 let assert_result at got expect =
-  let open Values in
+  let open Wasm.Values in
   if
     List.length got <> List.length expect ||
     List.exists2 (fun v r ->
@@ -410,9 +410,9 @@ let run_assertion ass =
     trace "Asserting invalid...";
     (match
       let m = run_definition def in
-      Valid.check_module m
+      Wasm.Valid.check_module m
     with
-    | exception Valid.Invalid (_, msg) ->
+    | exception Wasm.Valid.Invalid (_, msg) ->
       assert_message ass.at "validation" msg re
     | _ -> Assert.error ass.at "expected validation error"
     )
@@ -420,12 +420,12 @@ let run_assertion ass =
   | AssertUnlinkable (def, re) ->
     trace "Asserting unlinkable...";
     let m = run_definition def in
-    if not !Flags.unchecked then Valid.check_module m;
+    if not !Flags.unchecked then Wasm.Valid.check_module m;
     (match
       let imports = Import.link m in
-      ignore (Eval.init m imports)
+      ignore (Wasm.Eval.init m imports)
     with
-    | exception (Import.Unknown (_, msg) | Eval.Link (_, msg)) ->
+    | exception (Import.Unknown (_, msg) | Wasm.Eval.Link (_, msg)) ->
       assert_message ass.at "linking" msg re
     | _ -> Assert.error ass.at "expected linking error"
     )
@@ -433,12 +433,12 @@ let run_assertion ass =
   | AssertUninstantiable (def, re) ->
     trace "Asserting trap...";
     let m = run_definition def in
-    if not !Flags.unchecked then Valid.check_module m;
+    if not !Flags.unchecked then Wasm.Valid.check_module m;
     (match
       let imports = Import.link m in
-      ignore (Eval.init m imports)
+      ignore (Wasm.Eval.init m imports)
     with
-    | exception Eval.Trap (_, msg) ->
+    | exception Wasm.Eval.Trap (_, msg) ->
       assert_message ass.at "instantiation" msg re
     | _ -> Assert.error ass.at "expected instantiation error"
     )
@@ -452,14 +452,14 @@ let run_assertion ass =
   | AssertTrap (act, re) ->
     trace ("Asserting trap...");
     (match run_action act with
-    | exception Eval.Trap (_, msg) -> assert_message ass.at "runtime" msg re
+    | exception Wasm.Eval.Trap (_, msg) -> assert_message ass.at "runtime" msg re
     | _ -> Assert.error ass.at "expected runtime error"
     )
 
   | AssertExhaustion (act, re) ->
     trace ("Asserting exhaustion...");
     (match run_action act with
-    | exception Eval.Exhaustion (_, msg) ->
+    | exception Wasm.Eval.Exhaustion (_, msg) ->
       assert_message ass.at "exhaustion" msg re
     | _ -> Assert.error ass.at "expected exhaustion error"
     )
@@ -471,7 +471,7 @@ let rec run_command cmd =
     let m = run_definition def in
     if not !Wasm.Flags.unchecked then begin
       trace "Checking...";
-      Valid.check_module m;
+      Wasm.Valid.check_module m;
       if !Wasm.Flags.print_sig then begin
         trace "Signature:";
         print_module x_opt m
@@ -482,7 +482,7 @@ let rec run_command cmd =
     if not !Wasm.Flags.dry then begin
       trace "Initializing...";
       let imports = Import.link m in
-      let inst = Eval.init m imports in
+      let inst = Wasm.Eval.init m imports in
       bind instances x_opt inst
     end
 
